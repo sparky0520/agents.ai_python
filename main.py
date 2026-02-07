@@ -1,7 +1,21 @@
 from typing import TypedDict, List, Dict
 from langgraph.graph import StateGraph, END
-import random
 import time
+import os
+import praw
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Initialize PRAW
+reddit = praw.Reddit(
+    client_id=os.getenv("REDDIT_CLIENT_ID"),
+    client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
+    user_agent=os.getenv(
+        "REDDIT_USER_AGENT", "python:agents-ai-python:v0.1.0 (by /u/developer)"
+    ),
+)
 
 
 # --- 1. State Definition ---
@@ -23,86 +37,72 @@ class AgentState(TypedDict):
     is_complete: bool
 
 
-# --- 2. Mock Tools ---
-def mock_search_reddit(query: str, subreddit: str, limit: int = 5) -> List[Dict]:
+# --- 2. Tools (Real PRAW Implementation) ---
+def search_reddit(query: str, subreddit: str, limit: int = 5) -> List[Dict]:
     """
-    Simulates searching Reddit for threads.
+    Searches Reddit for threads using PRAW.
     Returns a list of thread objects.
     """
     print(f"  [Tool] Searching r/{subreddit} for '{query}'...")
-    time.sleep(0.5)  # Simulate network latency
 
-    # Generate some mock threads
     threads = []
-    titles = [
-        "Best Japanese learning apps?",
-        "Looking for paid conversation practice",
-        "Genki vs Minna no Nihongo",
-        "Is Duolingo good for N3?",
-        "Willing to pay for a good tutor/app",
-        "Free resources strictly",
-        "Review of Bunpro",
-        "Need help with Kanji",
-    ]
+    try:
+        # Search typically returns a generator
+        search_results = reddit.subreddit(subreddit).search(query, limit=limit)
 
-    for i in range(limit):
-        thread_id = f"{subreddit}_{random.randint(1000, 9999)}"
-        title = random.choice(titles)
-        threads.append(
-            {
-                "id": thread_id,
-                "url": f"https://reddit.com/r/{subreddit}/comments/{thread_id}",
-                "title": title,
-                "subreddit": subreddit,
-            }
-        )
+        for submission in search_results:
+            threads.append(
+                {
+                    "id": submission.id,
+                    "url": f"https://reddit.com{submission.permalink}",
+                    "title": submission.title,
+                    "subreddit": subreddit,
+                    "submission_obj": submission,  # Keep reference for comment fetching if needed, though we strictly use URL/ID usually
+                }
+            )
+    except Exception as e:
+        print(f"  [Error] Failed to search r/{subreddit}: {e}")
+
     return threads
 
 
-def mock_get_thread_comments(thread_url: str, limit: int = 10) -> List[Dict]:
+def get_thread_comments(thread_id: str, limit: int = 10) -> List[Dict]:
     """
-    Simulates fetching comments for a thread.
+    Fetches comments for a thread using PRAW.
     Returns a list of comment objects.
     """
-    # print(f"  [Tool] Fetching comments for {thread_url}...")
-    # Commented out to reduce noise
+    # print(f"  [Tool] Fetching comments for thread {thread_id}...")
 
-    # Generate mock comments with varying intent
     comments = []
+    try:
+        submission = reddit.submission(id=thread_id)
 
-    users = [f"user_{random.randint(1, 100)}" for _ in range(limit)]
+        # This triggers a network request to fetch comments
+        submission.comments.replace_more(
+            limit=0
+        )  # Flatten comment tree, remove "load more"
 
-    # Templates for high/medium/low intent
-    high_intent_templates = [
-        "I'd happily pay $30/month for an app that focuses on actual conversation skills.",
-        "Willing to invest if it means faster progress.",
-        "I don't mind paying for quality. Time is money.",
-    ]
+        # Just get top-level comments or flat list depending on depth requirements.
+        # For simplicity, let's look at top-level comments.
+        # To get all, uses submission.comments.list()
 
-    medium_intent_templates = [
-        "Free apps aren't cutting it for me anymore.",
-        "Considering a paid subscription to WaniKani.",
-        "Looking for something more professional than Duolingo.",
-    ]
+        count = 0
+        for comment in submission.comments.list():
+            if count >= limit:
+                break
 
-    low_intent_templates = [
-        "Any free alternatives?",
-        "I'm broke so looking for free resources.",
-        "Just use Anki, it's free.",
-        "Don't pay for apps, just immerse.",
-    ]
+            if isinstance(comment, praw.models.Comment) and comment.author:
+                comments.append(
+                    {
+                        "author": comment.author.name,
+                        "text": comment.body,
+                        "thread_url": submission.permalink,
+                    }
+                )
+                count += 1
 
-    for user in users:
-        # Randomly assign intent
-        rand = random.random()
-        if rand > 0.85:
-            text = random.choice(high_intent_templates)
-        elif rand > 0.70:
-            text = random.choice(medium_intent_templates)
-        else:
-            text = random.choice(low_intent_templates)
-
-        comments.append({"author": f"u/{user}", "text": text, "thread_url": thread_url})
+    except Exception as e:
+        print(f"  [Error] Failed to fetch comments for {thread_id}: {e}")
 
     return comments
 
@@ -152,10 +152,15 @@ def search_node(state: AgentState):
     all_threads = []
 
     # In a real scenario, we might rotate subreddits or check all.
-    # For this mock, we just check them all.
+    # For this implementation, we just check them all.
     for sub in subreddits:
-        threads = mock_search_reddit(query, sub, limit=3)
-        all_threads.extend(threads)
+        try:
+            threads = search_reddit(query, sub, limit=3)
+            all_threads.extend(threads)
+            # Be nice to API
+            time.sleep(1.0)
+        except Exception as e:
+            print(f"Error searching {sub}: {e}")
 
     print(f"Found {len(all_threads)} potential threads.")
 
@@ -176,14 +181,16 @@ def analyze_node(state: AgentState):
     new_candidates_count = 0
 
     for thread in threads:
+        thread_id = thread["id"]
         url = thread["url"]
+
         if url in visited:
             continue
 
         visited.add(url)
 
         # Fetch comments
-        comments = mock_get_thread_comments(url, limit=5)
+        comments = get_thread_comments(thread_id, limit=20)
 
         for comment in comments:
             score = analyze_intent(comment["text"])
@@ -204,8 +211,10 @@ def analyze_node(state: AgentState):
                 current_candidates.append(candidate)
                 new_candidates_count += 1
 
-                # Print status within the node if needed or rely on final report
-                # print(f"  + New Candidate: {candidate['username']} (Score: {score})")
+                print(f"  + New Candidate: {candidate['username']} (Score: {score})")
+
+        # Rate limiting
+        time.sleep(0.5)
 
     print(f"Analysis complete. Found {new_candidates_count} new candidates this batch.")
 
@@ -229,7 +238,9 @@ def check_conditions_node(state: AgentState):
     if num_candidates >= max_users:
         print(f"Goal met: Found {num_candidates} candidates.")
         is_complete = True
-    elif state["iteration"] > 5:  # Hard max iterations for safety
+    elif (
+        state["iteration"] > 3
+    ):  # Hard max iterations for safety (reduced for real API)
         print("Max iterations reached.")
         is_complete = True
 
@@ -271,7 +282,16 @@ def build_graph():
 
 # --- 6. Main Execution ---
 if __name__ == "__main__":
-    print("Initializing Reddit Scout Agent (LangGraph)...")
+    print("Initializing Reddit Scout Agent (PRAW + LangGraph)...")
+
+    # Check for credentials
+    if not os.getenv("REDDIT_CLIENT_ID") or not os.getenv("REDDIT_CLIENT_SECRET"):
+        print("\n[ERROR] Reddit API credentials not found.")
+        print(
+            "Please create a .env file with REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET."
+        )
+        print("See .env.example for details.\n")
+        exit(1)
 
     try:
         app = build_graph()
@@ -279,7 +299,7 @@ if __name__ == "__main__":
         initial_state = {
             "query": "japanese learning app",
             "target_subreddits": ["LearnJapanese", "languagelearning", "Japanese"],
-            "max_users": 20,  # Low number for quick demo
+            "max_users": 5,  # Low number for demo
             "min_intent_score": 0.7,
             "visited_threads": [],
             "candidates": [],
@@ -303,7 +323,7 @@ if __name__ == "__main__":
         for i, c in enumerate(candidates, 1):
             print(f"\n{i}. {c['username']} (Score: {c['intent_score']})")
             print(f"   Subreddit: r/{c['subreddit']}")
-            print(f'   Evidence: "{c["evidence"]}"')
+            print(f'   Evidence: "{c["evidence"][:150]}..."')  # Truncate evidence
 
         print("\nExecution Complete.")
 
