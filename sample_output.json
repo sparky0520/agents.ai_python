@@ -1,0 +1,147 @@
+{
+  "results": [
+    {
+      "username": "u/serious_student_88",
+      "intent_score": 0.95,
+      "subreddit": "r/LearnJapanese",
+      "thread_url": "https://reddit.com/r/LearnJapanese/comments/abc123",
+      "thread_title": "Looking for paid Japanese learning app recommendations",
+      "evidence": [
+        "I'd happily pay $30/month for an app that focuses on actual conversation skills. Most apps are too gamified and don't teach real Japanese."
+      ],
+      "context": "User frustrated with gamified free apps, seeking professional solution for conversation practice"
+    },
+    {
+      "username": "u/professional_need",
+      "intent_score": 0.88,
+      "subreddit": "r/LearnJapanese",
+      "thread_url": "https://reddit.com/r/LearnJapanese/comments/def456",
+      "thread_title": "Free vs paid Japanese learning resources",
+      "evidence": [
+        "I need something more professional and structured. Free apps feel like toys.",
+        "Willing to invest if it means faster progress."
+      ],
+      "context": "Professional learner values quality and structure over cost"
+    },
+    {
+      "username": "u/time_limited",
+      "intent_score": 0.85,
+      "subreddit": "r/languagelearning",
+      "thread_url": "https://reddit.com/r/languagelearning/comments/ghi789",
+      "thread_title": "Best apps for Japanese conversation practice",
+      "evidence": [
+        "As someone with limited time, I don't mind paying for quality. Time is more valuable than money at this point."
+      ],
+      "context": "Time-constrained professional learner prioritizing efficiency"
+    },
+    {
+      "username": "u/helpful_teacher",
+      "intent_score": 0.82,
+      "subreddit": "r/LearnJapanese",
+      "thread_url": "https://reddit.com/r/LearnJapanese/comments/abc123",
+      "thread_title": "Looking for paid Japanese learning app recommendations",
+      "evidence": [
+        "I switched to Bunpro and it's been amazing. The subscription is worth every penny for the structured grammar lessons."
+      ],
+      "context": "Successfully using paid service, advocates for subscription value"
+    },
+    {
+      "username": "u/wanikani_user",
+      "intent_score": 0.80,
+      "subreddit": "r/LearnJapanese",
+      "thread_url": "https://reddit.com/r/LearnJapanese/comments/abc123",
+      "thread_title": "Looking for paid Japanese learning app recommendations",
+      "evidence": [
+        "WaniKani subscription changed my kanji learning completely. Free apps weren't cutting it for me."
+      ],
+      "context": "Found success with paid kanji learning platform after free app dissatisfaction"
+    },
+    {
+      "username": "u/speaking_focused",
+      "intent_score": 0.78,
+      "subreddit": "r/languagelearning",
+      "thread_url": "https://reddit.com/r/languagelearning/comments/mno345",
+      "thread_title": "Best apps for Japanese conversation practice",
+      "evidence": [
+        "Looking for paid alternatives that actually teach speaking. Most free apps skip this entirely."
+      ],
+      "context": "Specifically seeking paid solutions for conversation skills"
+    },
+    {
+      "username": "u/motivated_user",
+      "intent_score": 0.75,
+      "subreddit": "r/LearnJapanese",
+      "thread_url": "https://reddit.com/r/LearnJapanese/comments/ghi789",
+      "thread_title": "Frustrated with Duolingo for Japanese",
+      "evidence": [
+        "Duolingo isn't cutting it anymore. I need something more structured even if it costs money."
+      ],
+      "context": "Outgrown free app, ready to upgrade to paid service"
+    },
+    {
+      "username": "u/kanji_student",
+      "intent_score": 0.73,
+      "subreddit": "r/LearnJapanese",
+      "thread_url": "https://reddit.com/r/LearnJapanese/comments/def456",
+      "thread_title": "Is WaniKani subscription worth it?",
+      "evidence": [
+        "Considering the WaniKani subscription. Free methods aren't organized enough for me."
+      ],
+      "context": "Evaluating paid kanji learning platform, dissatisfied with free options"
+    },
+    {
+      "username": "u/serious_about_progress",
+      "intent_score": 0.72,
+      "subreddit": "r/Japanese",
+      "thread_url": "https://reddit.com/r/Japanese/comments/jkl012",
+      "thread_title": "Free vs paid Japanese learning resources",
+      "evidence": [
+        "I'm serious about learning and willing to invest in better resources. Free apps lack depth."
+      ],
+      "context": "Committed learner seeking depth and willing to pay for quality"
+    },
+    {
+      "username": "u/structured_learner",
+      "intent_score": 0.71,
+      "subreddit": "r/languagelearning",
+      "thread_url": "https://reddit.com/r/languagelearning/comments/abc123",
+      "thread_title": "Looking for paid Japanese learning app recommendations",
+      "evidence": [
+        "Need something with a structured curriculum. Would pay for proper lesson progression."
+      ],
+      "context": "Values systematic learning approach over free ad-hoc resources"
+    }
+  ],
+  "summary": {
+    "total_users": 10,
+    "high_confidence_users": 3,
+    "threads_analyzed": 35,
+    "iterations_completed": 7,
+    "observed_patterns": [
+      "Strong frustration with overly gamified apps",
+      "Desire for structured conversation/speaking practice",
+      "Free apps perceived as insufficient for serious learning",
+      "Time-constrained users prioritize efficiency over cost",
+      "Demand for professional-grade learning tools"
+    ],
+    "top_subreddits": [
+      {
+        "name": "r/LearnJapanese",
+        "count": 6
+      },
+      {
+        "name": "r/languagelearning",
+        "count": 3
+      },
+      {
+        "name": "r/Japanese",
+        "count": 1
+      }
+    ]
+  },
+  "metadata": {
+    "execution_time_seconds": 45.3,
+    "timestamp": "2026-02-07T08:54:23.456Z",
+    "agent_version": "1.0.0"
+  }
+}
