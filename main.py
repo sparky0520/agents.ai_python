@@ -61,6 +61,7 @@ def get_reddit_client(creds: Dict[str, str]) -> praw.Reddit:
         client_secret=creds["client_secret"],
         user_agent=creds["user_agent"],
         check_for_updates=False,
+        check_for_async=False,
     )
 
 
@@ -317,7 +318,7 @@ agent_graph = build_graph()
 
 
 @app.post("/execute")
-async def execute_agent(request: AgentRequest):
+def execute_agent(request: AgentRequest):
     """
     Executes the Reddit Scout Agent with provided credentials and inputs.
     """
