@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 # Import specific agent definition
-from reddit_scout import (
+from agent_package.reddit_scout import (
     agent_graph,
     AgentEnv,
     AgentInputs,
