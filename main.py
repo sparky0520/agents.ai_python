@@ -2,7 +2,10 @@ from typing import TypedDict, List, Dict
 from langgraph.graph import StateGraph, END
 import praw
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 # Load environment variables (fallback if not provided in request)
@@ -313,6 +316,29 @@ def build_graph():
 # --- 7. FastAPI App ---
 app = FastAPI(title="Reddit Scout Agent API", version="0.1.0")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    print(f"Validation Error: {exc}")
+    try:
+        body = await request.json()
+        print(f"Request Body: {body}")
+    except Exception:
+        print("Could not parse body")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "body": str(exc)},
+    )
+
+
 # Initialize graph once (it's stateless in terms of object instance, state is passed in invoke)
 agent_graph = build_graph()
 
@@ -322,6 +348,7 @@ def execute_agent(request: AgentRequest):
     """
     Executes the Reddit Scout Agent with provided credentials and inputs.
     """
+    print(f"Received Request: {request.model_dump_json(indent=2)}")
     # Create the graph instance here to ensure clean state if needed,
     # though compiling it once globally is standard for StateGraph if logic doesn't change.
 
