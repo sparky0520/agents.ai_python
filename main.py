@@ -1,33 +1,50 @@
 from typing import TypedDict, List, Dict
 from langgraph.graph import StateGraph, END
-import time
-import os
 import praw
 from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
-# Load environment variables
+# Load environment variables (fallback if not provided in request)
 load_dotenv()
 
-# Initialize PRAW
-reddit = praw.Reddit(
-    client_id=os.getenv("REDDIT_CLIENT_ID"),
-    client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
-    user_agent=os.getenv(
-        "REDDIT_USER_AGENT", "python:agents-ai-python:v0.1.0 (by /u/developer)"
-    ),
-)
+
+# --- 1. Data Models for API ---
+class AgentEnv(BaseModel):
+    reddit_client_id: str
+    reddit_client_secret: str
+    reddit_user_agent: str = "python:agents-ai-python:v0.1.0 (by /u/developer)"
 
 
-# --- 1. State Definition ---
+class AgentInputs(BaseModel):
+    query: str
+    target_subreddits: List[str]
+    max_users: int = 5
+    min_intent_score: float = 0.7
+
+
+class AgentRequest(BaseModel):
+    agent_config: Dict[str, str] = {}
+    auth_requirements: Dict[str, List[Dict[str, str]]] = {}
+
+    env: AgentEnv
+    inputs: AgentInputs
+
+
+# --- 2. State Definition ---
 class AgentState(TypedDict):
     """
     Represents the state of the Reddit Scout Agent.
     """
 
+    # Inputs
     query: str
     target_subreddits: List[str]
     max_users: int
     min_intent_score: float
+
+    # Credentials (to be used by nodes)
+    reddit_creds: Dict[str, str]
 
     # Internal state
     visited_threads: List[str]  # Visited thread IDs/URLs
@@ -37,8 +54,19 @@ class AgentState(TypedDict):
     is_complete: bool
 
 
-# --- 2. Tools (Real PRAW Implementation) ---
-def search_reddit(query: str, subreddit: str, limit: int = 5) -> List[Dict]:
+# --- 3. Tools (Modified to accept client) ---
+def get_reddit_client(creds: Dict[str, str]) -> praw.Reddit:
+    return praw.Reddit(
+        client_id=creds["client_id"],
+        client_secret=creds["client_secret"],
+        user_agent=creds["user_agent"],
+        check_for_updates=False,
+    )
+
+
+def search_reddit(
+    reddit_client: praw.Reddit, query: str, subreddit: str, limit: int = 5
+) -> List[Dict]:
     """
     Searches Reddit for threads using PRAW.
     Returns a list of thread objects.
@@ -48,7 +76,7 @@ def search_reddit(query: str, subreddit: str, limit: int = 5) -> List[Dict]:
     threads = []
     try:
         # Search typically returns a generator
-        search_results = reddit.subreddit(subreddit).search(query, limit=limit)
+        search_results = reddit_client.subreddit(subreddit).search(query, limit=limit)
 
         for submission in search_results:
             threads.append(
@@ -57,16 +85,20 @@ def search_reddit(query: str, subreddit: str, limit: int = 5) -> List[Dict]:
                     "url": f"https://reddit.com{submission.permalink}",
                     "title": submission.title,
                     "subreddit": subreddit,
-                    "submission_obj": submission,  # Keep reference for comment fetching if needed, though we strictly use URL/ID usually
+                    "submission_obj": submission,  # Keep reference (note: not serializable, but we extract fields immediately)
                 }
             )
+            # Remove non-serializable object before returning if ensuring strict serialization
+            threads[-1].pop("submission_obj")
     except Exception as e:
         print(f"  [Error] Failed to search r/{subreddit}: {e}")
 
     return threads
 
 
-def get_thread_comments(thread_id: str, limit: int = 10) -> List[Dict]:
+def get_thread_comments(
+    reddit_client: praw.Reddit, thread_id: str, limit: int = 10
+) -> List[Dict]:
     """
     Fetches comments for a thread using PRAW.
     Returns a list of comment objects.
@@ -75,16 +107,12 @@ def get_thread_comments(thread_id: str, limit: int = 10) -> List[Dict]:
 
     comments = []
     try:
-        submission = reddit.submission(id=thread_id)
+        submission = reddit_client.submission(id=thread_id)
 
         # This triggers a network request to fetch comments
         submission.comments.replace_more(
             limit=0
         )  # Flatten comment tree, remove "load more"
-
-        # Just get top-level comments or flat list depending on depth requirements.
-        # For simplicity, let's look at top-level comments.
-        # To get all, uses submission.comments.list()
 
         count = 0
         for comment in submission.comments.list():
@@ -107,11 +135,10 @@ def get_thread_comments(thread_id: str, limit: int = 10) -> List[Dict]:
     return comments
 
 
-# --- 3. Domain Logic ---
+# --- 4. Domain Logic ---
 def analyze_intent(text: str) -> float:
     """
     Heuristic to score payment intent (0.0 - 1.0).
-    Same logic as in the design doc.
     """
     text_lower = text.lower()
 
@@ -139,7 +166,7 @@ def analyze_intent(text: str) -> float:
     return 0.3
 
 
-# --- 4. Nodes ---
+# --- 5. Nodes ---
 def search_node(state: AgentState):
     """
     Searches subreddits for threads.
@@ -149,16 +176,17 @@ def search_node(state: AgentState):
     query = state["query"]
     subreddits = state["target_subreddits"]
 
+    # Initialize client from state credentials
+    reddit = get_reddit_client(state["reddit_creds"])
+
     all_threads = []
 
-    # In a real scenario, we might rotate subreddits or check all.
-    # For this implementation, we just check them all.
     for sub in subreddits:
         try:
-            threads = search_reddit(query, sub, limit=3)
+            threads = search_reddit(reddit, query, sub, limit=3)
             all_threads.extend(threads)
             # Be nice to API
-            time.sleep(1.0)
+            # time.sleep(1.0) # Reduced/Removed for API speed in this example
         except Exception as e:
             print(f"Error searching {sub}: {e}")
 
@@ -178,6 +206,9 @@ def analyze_node(state: AgentState):
     current_candidates = list(state["candidates"])
     min_score = state["min_intent_score"]
 
+    # Initialize client
+    reddit = get_reddit_client(state["reddit_creds"])
+
     new_candidates_count = 0
 
     for thread in threads:
@@ -190,7 +221,7 @@ def analyze_node(state: AgentState):
         visited.add(url)
 
         # Fetch comments
-        comments = get_thread_comments(thread_id, limit=20)
+        comments = get_thread_comments(reddit, thread_id, limit=20)
 
         for comment in comments:
             score = analyze_intent(comment["text"])
@@ -214,7 +245,7 @@ def analyze_node(state: AgentState):
                 print(f"  + New Candidate: {candidate['username']} (Score: {score})")
 
         # Rate limiting
-        time.sleep(0.5)
+        # time.sleep(0.5)
 
     print(f"Analysis complete. Found {new_candidates_count} new candidates this batch.")
 
@@ -238,9 +269,7 @@ def check_conditions_node(state: AgentState):
     if num_candidates >= max_users:
         print(f"Goal met: Found {num_candidates} candidates.")
         is_complete = True
-    elif (
-        state["iteration"] > 3
-    ):  # Hard max iterations for safety (reduced for real API)
+    elif state["iteration"] > 3:  # Hard max iterations
         print("Max iterations reached.")
         is_complete = True
 
@@ -256,7 +285,7 @@ def should_continue(state: AgentState):
     return "continue"
 
 
-# --- 5. Graph Construction ---
+# --- 6. Graph Construction ---
 def build_graph():
     workflow = StateGraph(AgentState)
 
@@ -280,27 +309,36 @@ def build_graph():
     return workflow.compile()
 
 
-# --- 6. Main Execution ---
-if __name__ == "__main__":
-    print("Initializing Reddit Scout Agent (PRAW + LangGraph)...")
+# --- 7. FastAPI App ---
+app = FastAPI(title="Reddit Scout Agent API", version="0.1.0")
 
-    # Check for credentials
-    if not os.getenv("REDDIT_CLIENT_ID") or not os.getenv("REDDIT_CLIENT_SECRET"):
-        print("\n[ERROR] Reddit API credentials not found.")
-        print(
-            "Please create a .env file with REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET."
-        )
-        print("See .env.example for details.\n")
-        exit(1)
+# Initialize graph once (it's stateless in terms of object instance, state is passed in invoke)
+agent_graph = build_graph()
+
+
+@app.post("/execute")
+async def execute_agent(request: AgentRequest):
+    """
+    Executes the Reddit Scout Agent with provided credentials and inputs.
+    """
+    # Create the graph instance here to ensure clean state if needed,
+    # though compiling it once globally is standard for StateGraph if logic doesn't change.
 
     try:
-        app = build_graph()
+        app_graph = agent_graph  # Use global compiled graph
 
+        # Prepare initial state
         initial_state = {
-            "query": "japanese learning app",
-            "target_subreddits": ["LearnJapanese", "languagelearning", "Japanese"],
-            "max_users": 5,  # Low number for demo
-            "min_intent_score": 0.7,
+            "query": request.inputs.query,
+            "target_subreddits": request.inputs.target_subreddits,
+            "max_users": request.inputs.max_users,
+            "min_intent_score": request.inputs.min_intent_score,
+            "reddit_creds": {
+                "client_id": request.env.reddit_client_id,
+                "client_secret": request.env.reddit_client_secret,
+                "user_agent": request.env.reddit_user_agent,
+            },
+            # Internal state defaults
             "visited_threads": [],
             "candidates": [],
             "threads_to_process": [],
@@ -308,27 +346,32 @@ if __name__ == "__main__":
             "is_complete": False,
         }
 
-        print(f"Starting search for {initial_state['max_users']} candidates...")
-
         # Invoke the graph
-        final_output = app.invoke(initial_state)
+        # For a real async API, we might want to use app.ainvoke if LangGraph supports it,
+        # or run in a threadpool to avoid blocking the event loop.
+        # StateGraph.invoke is synchronous.
+        final_output = app_graph.invoke(initial_state)
 
-        print("\n" + "=" * 50)
-        print("FINAL RESULTS")
-        print("=" * 50)
-
-        candidates = final_output["candidates"]
-        print(f"Total Candidates Found: {len(candidates)}")
-
-        for i, c in enumerate(candidates, 1):
-            print(f"\n{i}. {c['username']} (Score: {c['intent_score']})")
-            print(f"   Subreddit: r/{c['subreddit']}")
-            print(f'   Evidence: "{c["evidence"][:150]}..."')  # Truncate evidence
-
-        print("\nExecution Complete.")
+        # Return results
+        return {
+            "status": "success",
+            "candidates": final_output["candidates"],
+            "total_count": len(final_output["candidates"]),
+            "metadata": {
+                "iterations": final_output["iteration"] - 1,
+                "visited_threads_count": len(final_output["visited_threads"]),
+            },
+        }
 
     except Exception as e:
-        print(f"An error occurred: {e}")
         import traceback
 
         traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    # Use standard uvicorn execution
+    uvicorn.run(app, host="0.0.0.0", port=8000)
