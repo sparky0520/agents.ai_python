@@ -37,30 +37,16 @@ class AgentLoader:
         Fetches agent files from MongoDB, saves them to cache, and imports the module.
         Returns the module object.
         """
-        # 1. Check if agent is already cached and up to date?
-        # For now, let's always fetch metadata to check version, or just overwrite.
-        # Simple approach: Check if folder exists.
-
         agent_dir = os.path.join(self._base_cache_dir, agent_id)
 
-        # We should probably force refresh or check modification time if possible.
-        # But for this implementation, let's try to fetch if not present or just overwrite.
-
+        # Fetch from DB
         self._fetch_and_save_agent(agent_id, agent_dir)
 
         # 2. Dynamically import the module
-        # We expect a script file. The agent.yaml might tell us which one, or we look for typical names.
-        # But wait, looking at my `saveAgent` in Next.js, I save all files.
-        # The user uploads 'script'. I don't know the file extension or name exactly unless I check.
-        # Let's check `agent.yaml` in the downloaded directory.
-
         agent_yaml_path = os.path.join(agent_dir, "agent.yaml")
         if not os.path.exists(agent_yaml_path):
-            raise FileNotFoundError(f"agent.yaml not found for agent {agent_id}")
-
-        # In a real scenario, agent.yaml would define the entry point.
-        # For now, let's search for a .py file that is NOT __init__.py or generated schema scripts.
-        # Or hopefully the user uploaded `reddit_scout.py` or similar.
+            # Fallback: maybe just look for .py if no yaml
+            pass
 
         # Let's look for the first .py file that is not standard.
         py_files = [
@@ -72,6 +58,7 @@ class AgentLoader:
         script_name = py_files[0]  # Take the first one for now
         script_path = os.path.join(agent_dir, script_name)
 
+        # Use a unique module name to avoid conflicts
         module_name = f"agents_cache.{agent_id}.{script_name[:-3]}"
 
         # Add cache dir to sys.path if not there
@@ -91,10 +78,21 @@ class AgentLoader:
 
     def _fetch_and_save_agent(self, agent_id: str, dest_dir: str):
         print(f"Fetching agent {agent_id} from MongoDB...")
-        agent_doc = self.db.agents.find_one({"agent_id": agent_id})
+        try:
+            agent_doc = self.db.agents.find_one({"agent_id": agent_id})
+        except Exception as e:
+            print(f"DB Error: {e}")
+            agent_doc = None
 
         if not agent_doc:
-            raise ValueError(f"Agent {agent_id} not found in database")
+            # If not in DB, maybe we can't do anything
+            # But if we are testing, let's check if the directory already exists in cache (maybe manually placed)
+            if os.path.exists(dest_dir):
+                print(f"Agent {agent_id} found in cache, using cached version.")
+                return
+            raise ValueError(
+                f"Agent {agent_id} not found in database or local dev paths"
+            )
 
         if os.path.exists(dest_dir):
             shutil.rmtree(dest_dir)

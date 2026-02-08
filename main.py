@@ -26,6 +26,10 @@ class AgentRequest(BaseModel):
     inputs: Dict[str, Any]
 
 
+class BatchAgentRequest(BaseModel):
+    requests: List[AgentRequest]
+
+
 # --- 2. FastAPI App ---
 app = FastAPI(title="AI Agent Orchestrator", version="0.1.0")
 
@@ -52,60 +56,87 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
+def _run_single_agent(request: AgentRequest) -> Dict:
+    """
+    Helper function to execute a single agent
+    """
+    print(f"Executing agent {request.agent_id}")
+
+    # Dynamically load the agent module
+    agent_module = loader.get_agent_module(request.agent_id)
+
+    # Check if module has required attributes
+    if (
+        not hasattr(agent_module, "get_initial_state")
+        or not hasattr(agent_module, "agent_graph")
+        or not hasattr(agent_module, "get_result")
+    ):
+        raise ValueError(
+            f"Agent module for {request.agent_id} is missing required exports (get_initial_state, agent_graph, get_result)"
+        )
+
+    # Prepare initial state using specific agent's helper
+    env = request.env
+    inputs = request.inputs
+
+    if hasattr(agent_module, "AgentEnv"):
+        # Convert dict to pydantic object
+        env = agent_module.AgentEnv(**request.env)
+
+    if hasattr(agent_module, "AgentInputs"):
+        inputs = agent_module.AgentInputs(**request.inputs)
+
+    initial_state = agent_module.get_initial_state(env, inputs)
+
+    # Invoke the graph
+    final_output = agent_module.agent_graph.invoke(initial_state)
+
+    # Return results using specific agent's helper
+    return agent_module.get_result(final_output)
+
+
 @app.post("/execute")
 def execute_agent(request: AgentRequest):
     """
     Executes the Agent with provided credentials and inputs.
     """
-    print(f"Received Request for agent {request.agent_id}")
-
     try:
-        # Dynamically load the agent module
-        agent_module = loader.get_agent_module(request.agent_id)
-
-        # Check if module has required attributes
-        if (
-            not hasattr(agent_module, "get_initial_state")
-            or not hasattr(agent_module, "agent_graph")
-            or not hasattr(agent_module, "get_result")
-        ):
-            raise ValueError(
-                f"Agent module for {request.agent_id} is missing required exports (get_initial_state, agent_graph, get_result)"
-            )
-
-        # Prepare initial state using specific agent's helper
-        # We need to map the generic Dict inputs to what the agent expects if needed
-        # safely assuming the agent module handles the dicts or pydantic models if we pass dicts
-
-        # Reconstruct AgentEnv and AgentInputs from the request dicts if the agent uses Pydantic
-        # For now, we assume get_initial_state can handle dicts or we need to look at how it was imported.
-        # The previous code imported AgentEnv, AgentInputs classes.
-        # Now we don't have them imported statically.
-
-        # We can try to instantiate them from the module if they exist
-        env = request.env
-        inputs = request.inputs
-
-        if hasattr(agent_module, "AgentEnv"):
-            # Convert dict to pydantic object
-            env = agent_module.AgentEnv(**request.env)
-
-        if hasattr(agent_module, "AgentInputs"):
-            inputs = agent_module.AgentInputs(**request.inputs)
-
-        initial_state = agent_module.get_initial_state(env, inputs)
-
-        # Invoke the graph
-        final_output = agent_module.agent_graph.invoke(initial_state)
-
-        # Return results using specific agent's helper
-        return agent_module.get_result(final_output)
-
+        return _run_single_agent(request)
     except Exception as e:
         import traceback
 
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/execute_batch")
+def execute_batch(batch_request: BatchAgentRequest):
+    """
+    Executes multiple agents sequentially (or parallel in future).
+    Returns a list of results in common format.
+    """
+    results = []
+    errors = []
+
+    for i, req in enumerate(batch_request.requests):
+        try:
+            print(
+                f"Batch processing {i + 1}/{len(batch_request.requests)}: {req.agent_id}"
+            )
+            result = _run_single_agent(req)
+            results.append(
+                {"agent_id": req.agent_id, "status": "success", "result": result}
+            )
+        except Exception as e:
+            import traceback
+
+            traceback.print_exc()
+            results.append(
+                {"agent_id": req.agent_id, "status": "error", "error": str(e)}
+            )
+            errors.append(str(e))
+
+    return {"results": results, "errors": errors}
 
 
 if __name__ == "__main__":
