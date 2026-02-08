@@ -95,6 +95,11 @@ def _run_single_agent(request: AgentRequest) -> Dict:
     return agent_module.get_result(final_output)
 
 
+@app.get("/")
+def hello():
+    return {"message": "Hello World"}
+
+
 @app.post("/execute")
 def execute_agent(request: AgentRequest):
     """
